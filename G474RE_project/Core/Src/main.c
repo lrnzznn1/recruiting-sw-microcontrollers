@@ -44,11 +44,15 @@
 ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 
+TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 //Global variable for state, to allow the interrupt to change the state
 char state='R';//W waiting, R running, D danger
+char sensortoread = 'N';//S sensor, V voltage, N nothing
 
 /* USER CODE END PV */
 
@@ -58,6 +62,8 @@ static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC2_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -74,14 +80,7 @@ static void MX_ADC2_Init(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
 	bool selectedled= true; //true led1, false led2
-
-	uint32_t timer = HAL_GetTick();
-
-	uint32_t timersensornew = timer + 200;
-	uint32_t timervoltagenew = timer + 350;
-
 
   /* USER CODE END 1 */
 
@@ -106,7 +105,20 @@ int main(void)
   MX_ADC1_Init();
   MX_USART2_UART_Init();
   MX_ADC2_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+
+  if (HAL_TIM_Base_Start_IT(&htim3) != HAL_OK)
+    {
+      /* Starting Error */
+      Error_Handler();
+    }
+  if (HAL_TIM_Base_Start_IT(&htim4) != HAL_OK)
+    {
+      /* Starting Error */
+      Error_Handler();
+    }
 
   /* USER CODE END 2 */
 
@@ -122,71 +134,65 @@ int main(void)
 		 break;
 
 	 case 'R': //RUNNING STATE
-		 //Check timer for sensor
-		 if(timer>timersensornew){		 	//SENSOR
-			// Read analog value of sensor
-		 	HAL_ADC_Start(&hadc1);
-			HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-			float valueadc = HAL_ADC_GetValue(&hadc1) * (3.3/4096) ; //Convert adc(0, 4096) to volt(0, 3.3)
+		 switch(sensortoread){
+		 case 'S':	 	//SENSOR
+			 // Read analog value of sensor
+			 HAL_ADC_Start(&hadc1);
+			 HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+			 float valueadc = HAL_ADC_GetValue(&hadc1) * (3.3/4096) ; //Convert adc(0, 4096) to volt(0, 3.3)
 
-			//Print of analog value
-			char msg[50];
-			sprintf(msg, "Analog Value: %.2f V\r\n", valueadc);
-			printinserial(msg);
-
-
-			//Read digital value of sensor
-			GPIO_PinState statedig;
-			statedig = HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
-			bool valuedig = (statedig == GPIO_PIN_SET);
-
-			//Print of digital value
-			sprintf(msg, "Digital value: %d\r\n\n", valuedig);
-			printinserial(msg);
+			 //Print of analog value
+			 char msg[50];
+			 sprintf(msg, "Analog Value: %.2f V\r\n", valueadc);
+			 printinserial(msg);
 
 
-		 	//Set new step
-			timersensornew=timer + 200;
+			 //Read digital value of sensor
+			 GPIO_PinState statedig;
+			 statedig = HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
+			 bool valuedig = (statedig == GPIO_PIN_SET);
+
+			 //Print of digital value
+			 sprintf(msg, "Digital value: %d\r\n\n", valuedig);
+			 printinserial(msg);
+
+			 break;
+		 case 'V':
+			 //Read the input voltage
+			 HAL_ADC_Start(&hadc2);
+			 HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+			 float value = HAL_ADC_GetValue(&hadc2) * (3.3/4096); //Convert adc(0, 4096) to volt(0, 3.3)
+
+			 //Print of analog value
+			 sprintf(msg, "Voltage: %.2f V\r\n", value);
+			 printinserial(msg);
+
+			 //Check the value of led
+			 if(value>2.7){
+			 	//Danger state led 1
+			 	selectedled=true;
+			 	state='D';
+			 }else{
+			 	//Reset of led 1
+			 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+
+			 	//Print info of led 1
+			 	printinserial("led 1 off\r\n");
+			 }if(value<1.8){
+			 	//Danger state led 2
+			 	selectedled=false;
+			 	state='D';
+			 }else{
+			 	//Reset of led 2
+			 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+
+			 	//Print info of led 2
+			 	printinserial("led 2 off\r\n");
+			 }
+			 break;
 		 }
-		 //Check timer for voltage
-		 if(timer>timervoltagenew){	 		//VOLTAGE
-		 	//Read the input voltage
-		 	HAL_ADC_Start(&hadc2);
-		 	HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
-		 	float value = HAL_ADC_GetValue(&hadc2) * (3.3/4096); //Convert adc(0, 4096) to volt(0, 3.3)
-
-		 	//Print of analog value
-		 	char msg[50];
-		 	sprintf(msg, "Voltage: %.2f V\r\n", value);
-		 	printinserial(msg);
-
-		 	//Check the value of led
-		 	if(value>2.7){
-		 		//Danger state led 1
-		 		selectedled=true;
-		 		state='D';
-		 	}else{
-		 		//Reset of led 1
-		 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
-
-		 		//Print info of led 1
-		 		printinserial("led 1 off\r\n");
-		 	}if(value<1.8){
-		 		//Danger state led 2
-		 		selectedled=false;
-		 		state='D';
-		 	}
-		 	else{
-		 		//Reset of led 2
-		 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-
-		 		//Print info of led 2
-		 		printinserial("led 2 off\r\n");
-		 	}
-
-		 	//Set new step
-		 	timervoltagenew=timer + 350;
-		 }
+		 //Reset
+		 sensortoread='N';
 		 break;
 
 	 case 'D': //DANGER STATE
@@ -209,7 +215,6 @@ int main(void)
 		 state='R';
 		break;
 	 }
-	timer = HAL_GetTick();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -228,7 +233,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
+  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -238,8 +243,8 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV4;
-  RCC_OscInitStruct.PLL.PLLN = 85;
+  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
+  RCC_OscInitStruct.PLL.PLLN = 10;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -257,7 +262,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -285,7 +290,7 @@ static void MX_ADC1_Init(void)
   /** Common config
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.GainCompensation = 0;
@@ -352,7 +357,7 @@ static void MX_ADC2_Init(void)
   /** Common config
   */
   hadc2.Instance = ADC2;
-  hadc2.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc2.Init.Resolution = ADC_RESOLUTION_12B;
   hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc2.Init.GainCompensation = 0;
@@ -387,6 +392,96 @@ static void MX_ADC2_Init(void)
   /* USER CODE BEGIN ADC2_Init 2 */
 
   /* USER CODE END ADC2_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 1450-1;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 11199;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 2500-1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
@@ -449,6 +544,7 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -491,6 +587,15 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
+{
+	if(htim == &htim3) //Timer3 200ms
+		sensortoread='S';
+	else if(htim == &htim4) //Timer4 350ms
+		sensortoread='V';
+}
+
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
