@@ -52,8 +52,7 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 //Global variable for state, to allow the interrupt to change the state
 char state='R';//W waiting, R running, D danger
-char sensortoread = 'N';//S sensor, V voltage, N nothing
-
+bool selectedled= true; //true led1, false led2
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -80,7 +79,7 @@ static void MX_TIM4_Init(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	bool selectedled= true; //true led1, false led2
+
 
   /* USER CODE END 1 */
 
@@ -131,68 +130,6 @@ int main(void)
 		 ;
 		 printinserial("Board in waiting state - please press the emergency button\r\n\n");
 		 HAL_Delay(500);
-		 break;
-
-	 case 'R': //RUNNING STATE
-		 switch(sensortoread){
-		 case 'S':	 	//SENSOR
-			 // Read analog value of sensor
-			 HAL_ADC_Start(&hadc1);
-			 HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-			 float valueadc = HAL_ADC_GetValue(&hadc1) * (3.3/4096) ; //Convert adc(0, 4096) to volt(0, 3.3)
-
-			 //Print of analog value
-			 char msg[50];
-			 sprintf(msg, "Analog Value: %.2f V\r\n", valueadc);
-			 printinserial(msg);
-
-
-			 //Read digital value of sensor
-			 GPIO_PinState statedig;
-			 statedig = HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
-			 bool valuedig = (statedig == GPIO_PIN_SET);
-
-			 //Print of digital value
-			 sprintf(msg, "Digital value: %d\r\n\n", valuedig);
-			 printinserial(msg);
-
-			 break;
-		 case 'V':
-			 //Read the input voltage
-			 HAL_ADC_Start(&hadc2);
-			 HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
-			 float value = HAL_ADC_GetValue(&hadc2) * (3.3/4096); //Convert adc(0, 4096) to volt(0, 3.3)
-
-			 //Print of analog value
-			 sprintf(msg, "Voltage: %.2f V\r\n", value);
-			 printinserial(msg);
-
-			 //Check the value of led
-			 if(value>2.7){
-			 	//Danger state led 1
-			 	selectedled=true;
-			 	state='D';
-			 }else{
-			 	//Reset of led 1
-			 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
-
-			 	//Print info of led 1
-			 	printinserial("led 1 off\r\n");
-			 }if(value<1.8){
-			 	//Danger state led 2
-			 	selectedled=false;
-			 	state='D';
-			 }else{
-			 	//Reset of led 2
-			 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-
-			 	//Print info of led 2
-			 	printinserial("led 2 off\r\n");
-			 }
-			 break;
-		 }
-		 //Reset
-		 sensortoread='N';
 		 break;
 
 	 case 'D': //DANGER STATE
@@ -461,7 +398,7 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 2500-1;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 65535;
+  htim4.Init.Period = 11199;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
@@ -590,10 +527,10 @@ static void MX_GPIO_Init(void)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 {
-	if(htim == &htim3) //Timer3 200ms
-		sensortoread='S';
-	else if(htim == &htim4) //Timer4 350ms
-		sensortoread='V';
+	if(htim == &htim3 && state=='R') //Timer3 200ms
+		sensorup();
+	else if(htim == &htim4 && state=='R') //Timer4 350ms
+		voltageup();
 }
 
 
@@ -604,7 +541,64 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 void printinserial(char msg[]){
-	HAL_UART_Transmit(&huart2,msg,strlen(msg),HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart2,msg,strlen(msg),10);
+}
+
+void sensorup(){
+	 // Read analog value of sensor
+				 HAL_ADC_Start(&hadc1);
+				 HAL_ADC_PollForConversion(&hadc1, 10);
+				 float valueadc = HAL_ADC_GetValue(&hadc1) * (3.3/4096) ; //Convert adc(0, 4096) to volt(0, 3.3)
+
+				 //Print of analog value
+				 char msg[50];
+				 sprintf(msg, "(%hu) Analog Value: %.2f V\r\n",HAL_GetTick() ,valueadc);
+				 printinserial(msg);
+
+
+				 //Read digital value of sensor
+				 GPIO_PinState statedig;
+				 statedig = HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_8);
+				 bool valuedig = (statedig == GPIO_PIN_SET);
+
+				 //Print of digital value
+				 sprintf(msg, "Digital value: %d\r\n\n", valuedig);
+				 printinserial(msg);
+
+}
+void voltageup(){
+	//Read the input voltage
+	HAL_ADC_Start(&hadc2);
+	HAL_ADC_PollForConversion(&hadc2, 10);
+	float value = HAL_ADC_GetValue(&hadc2) * (3.3/4096); //Convert adc(0, 4096) to volt(0, 3.3)
+
+	//Print of analog value
+	char msg[50];
+	sprintf(msg, "(%hu) Voltage: %.2f V\r\n", HAL_GetTick(),value);
+	printinserial(msg);
+
+				 //Check the value of led
+				 if(value>2.7){
+				 	//Danger state led 1
+				 	selectedled=true;
+				 	state='D';
+				 }else{
+				 	//Reset of led 1
+				 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+
+				 	//Print info of led 1
+				 	printinserial("led 1 off\r\n");
+				 }if(value<1.8){
+				 	//Danger state led 2
+				 	selectedled=false;
+				 	state='D';
+				 }else{
+				 	//Reset of led 2
+				 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+
+				 	//Print info of led 2
+				 	printinserial("led 2 off\r\n");
+				 }
 }
 
 /* USER CODE END 4 */
